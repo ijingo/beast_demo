@@ -198,10 +198,14 @@ private:
         }
     }
 
-    net::awaitable<error_code> handle_message(std::string const& req_body, std::string& result) {
+    net::awaitable<void> handle_message(std::string req_body) {
         std::string target ="/";
-        auto ec = co_await _http_client.request(target, req_body, result);
-        co_return ec;
+        auto result_msg = std::make_shared<std::string>();
+        auto ec = co_await _http_client.request(target, req_body, *result_msg);
+
+        for (auto& conn : _connections) {
+            co_await conn->send(result_msg);
+        }
     }
 
     net::awaitable<void> do_session(tcp::socket socket) {
@@ -228,16 +232,7 @@ private:
 
 			auto msg = beast::buffers_to_string(buffer.data());
 			buffer.consume(buffer.size());
-
-            auto result_msg = std::make_shared<std::string>();
-            auto handle_ec = co_await handle_message(msg, *result_msg);
-            if (handle_ec) {
-                continue;
-            }
-
-			for (auto& conn : _connections) {
-				co_await conn->send(result_msg);
-			}
+            net::co_spawn(_ioc, handle_message(std::move(msg)), net::detached) ;
 		}
 
 		_connections.erase(session);
