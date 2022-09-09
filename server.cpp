@@ -10,10 +10,7 @@ class Server;
 
 class HttpClient {
 public:
-    HttpClient(net::io_context& ioc)
-        : _ioc(ioc)
-        {
-        }
+    HttpClient() = default;
 
     ~HttpClient() {
         error_code shutdown_ec;
@@ -109,7 +106,6 @@ private:
     }
 
 private:
-    net::io_context& _ioc;
     tcp::endpoint _base_endpoint;
     std::unique_ptr<beast::tcp_stream> _stream;
     beast::flat_buffer _buffer;
@@ -120,7 +116,7 @@ class ConnectionSession {
 public:
     friend Server;
 
-    ConnectionSession(tcp::socket socket)
+    explicit ConnectionSession(tcp::socket socket)
         : _ws(std::move(socket))
     {
 		_ws.set_option(websocket::stream_base::timeout::suggested(beast::role_type::server));
@@ -150,15 +146,13 @@ private:
 
 class Server {
 public:
-    Server(net::io_context& ioc, tcp::endpoint endpoint)
-        : _ioc(ioc)
-        , _endpoint(endpoint)
+    Server(net::io_context& ioc, tcp::endpoint const& endpoint)
+        : _endpoint(endpoint)
         , _acceptor(ioc)
-        , _http_client(ioc)
     {
     }
 
-	void run(tcp::endpoint target_base_endpoint) {
+	void run(net::io_context& ioc, tcp::endpoint const& target_base_endpoint) {
         _http_client.set_target_base_endpoint(target_base_endpoint);
 
         error_code ec;
@@ -182,7 +176,7 @@ public:
 			std::cerr << "listen: " << ec.message() << "\n";
             return;
         }
-		net::co_spawn(_ioc, do_accept(), net::detached);
+		net::co_spawn(ioc, do_accept(), net::detached);
 	}
 
 private: 
@@ -232,7 +226,8 @@ private:
 
 			auto msg = beast::buffers_to_string(buffer.data());
 			buffer.consume(buffer.size());
-            net::co_spawn(_ioc, handle_message(std::move(msg)), net::detached) ;
+            auto exec = socket.get_executor();
+            net::co_spawn(exec, handle_message(std::move(msg)), net::detached) ;
 		}
 
 		_connections.erase(session);
@@ -242,9 +237,7 @@ private:
 		}
     }
     
-
 private: 
-    net::io_context& _ioc;
     tcp::endpoint _endpoint;
     tcp::acceptor _acceptor;
     std::unordered_set<std::shared_ptr<ConnectionSession>> _connections;
@@ -265,7 +258,7 @@ int main(int argc, char* argv[]) {
 		auto http_target_endpoint = *tcp::resolver(ioc).resolve(argv[3], argv[4]);
 
         Server server(ioc, endpoint);
-        server.run(http_target_endpoint);
+        server.run(ioc, http_target_endpoint);
 
         ioc.run();
     }
