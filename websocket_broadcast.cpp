@@ -44,14 +44,14 @@ class Server {
 public:
     Server(net::io_context& ioc, tcp::endpoint endpoint)
         : _ioc(ioc)
-        , _endpoint(endpoint)
+        , _bind_endpoint(endpoint)
         , _acceptor(ioc)
     {
     }
 
 	void run() {
         error_code ec;
-        _acceptor.open(_endpoint.protocol(), ec);
+        _acceptor.open(_bind_endpoint.protocol(), ec);
 		if (ec) {
 			std::cerr << "open: " << ec.message() << "\n";
             return;
@@ -61,7 +61,7 @@ public:
 			std::cerr << "set_option: " << ec.message() << "\n";
             return;
         }
-        _acceptor.bind(_endpoint, ec);
+        _acceptor.bind(_bind_endpoint, ec);
         if (ec) {
 			std::cerr << "bind: " << ec.message() << "\n";
             return;
@@ -127,7 +127,7 @@ private:
 
 private: 
     net::io_context& _ioc;
-    tcp::endpoint _endpoint;
+    tcp::endpoint _bind_endpoint;
     tcp::acceptor _acceptor;
     std::unordered_set<std::shared_ptr<ConnectionSession>> _connections;
 };

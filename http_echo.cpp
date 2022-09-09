@@ -32,8 +32,11 @@ net::awaitable<void> echo(tcp::socket socket) {
             break;
         }
 
+        std::cout << "got one request: " << req.body() << std::endl;
+
         auto resp = handle_request(std::move(req));
         bool keep_alive = resp.keep_alive();
+
         auto [write_ec, write_size] = co_await http::async_write(stream, std::move(resp), use_nothrow_awaitable);
         buffer.consume(buffer.size());
         if (write_ec) {

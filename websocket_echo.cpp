@@ -31,6 +31,8 @@ net::awaitable<void> echo(tcp::socket socket) {
         auto msg = beast::buffers_to_string(buffer.data());
         buffer.consume(buffer.size());
 
+        std::cout << "got one message: " << msg << std::endl;
+
         auto [write_ec, write_size] = co_await ws.async_write(net::buffer(msg), use_nothrow_awaitable);
         if (write_ec) {
             std::cerr << "write: " << write_ec.message() << "\n";
