@@ -6,7 +6,6 @@
 #include <string>
 #include <unordered_set>
 
-
 class Server;
 
 class ConnectionSession {
@@ -74,6 +73,7 @@ public:
         }
 		net::co_spawn(_ioc, do_accept(), net::detached);
 	}
+
 private: 
     net::awaitable<void> do_accept() {
         while (true) {

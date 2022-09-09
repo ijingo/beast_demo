@@ -42,6 +42,13 @@ add_executable(http_echo
 )
 target_link_libraries(http_echo PRIVATE Threads::Threads ${Boost_SYSTEM_LIBRARY})
 
+add_executable(http_client 
+  net/net.h
+  http_client.cpp
+  ${BEAST_FILES}
+)
+target_link_libraries(http_echo PRIVATE Threads::Threads ${Boost_SYSTEM_LIBRARY})
+
 add_executable(websocket_echo 
   net/net.h
   websocket_echo.cpp
