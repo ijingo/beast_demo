@@ -14,6 +14,7 @@ if(MSVC)
   add_definitions(-D_CRT_SECURE_NO_WARNINGS=1)
   add_definitions(-D_SILENCE_CXX17_ALLOCATOR_VOID_DEPRECATION_WARNING)
   add_compile_options(/MP)
+  add_compile_options(/bigobj)
   string(REPLACE "/W3" "/W4" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
 else()
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic")
@@ -62,3 +63,17 @@ add_executable(websocket_broadcast
   ${BEAST_FILES}
 )
 target_link_libraries(websocket_broadcast PRIVATE Threads::Threads ${Boost_SYSTEM_LIBRARY})
+
+add_executable(server 
+  net/net.h
+  server.cpp
+  ${BEAST_FILES}
+)
+target_link_libraries(server PRIVATE Threads::Threads ${Boost_SYSTEM_LIBRARY})
+
+add_executable(client 
+  net/net.h
+  client.cpp
+  ${BEAST_FILES}
+)
+target_link_libraries(client PRIVATE Threads::Threads ${Boost_SYSTEM_LIBRARY})
