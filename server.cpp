@@ -142,6 +142,7 @@ public:
 private:
     websocket::stream<beast::tcp_stream> _ws;
     std::deque<std::shared_ptr<std::string const>> _msg_queue;
+    HttpClient _http_client;
 };
 
 class Server {
@@ -153,8 +154,8 @@ public:
     }
 
 	void run(net::io_context& ioc, tcp::endpoint const& target_base_endpoint) {
-        _http_client.set_target_base_endpoint(target_base_endpoint);
-
+        _http_target_base_endpoint = target_base_endpoint;
+        
         error_code ec;
         _acceptor.open(_endpoint.protocol(), ec);
 		if (ec) {
@@ -179,11 +180,14 @@ public:
 		net::co_spawn(ioc, do_accept(), net::detached);
 	}
 
-private: 
-    net::awaitable<void> do_accept() {
-        while (true) {
+private:
+    net::awaitable<void> do_accept()
+    {
+        while (true)
+        {
             auto [ec, socket] = co_await _acceptor.async_accept(use_nothrow_awaitable);
-            if (ec) {
+            if (ec)
+            {
                 std::cerr << "listen: " << ec.message() << "\n";
                 break;
             }
@@ -192,10 +196,11 @@ private:
         }
     }
 
-    net::awaitable<void> handle_message(std::string req_body) {
+    net::awaitable<void> handle_message(std::shared_ptr<ConnectionSession> session, std::string req_body)
+    {
         std::string target ="/";
         auto result_msg = std::make_shared<std::string>();
-        auto ec = co_await _http_client.request(target, req_body, *result_msg);
+        auto ec = co_await session->_http_client.request(target, req_body, *result_msg);
 
         for (auto& conn : _connections) {
             co_await conn->send(result_msg);
@@ -204,6 +209,7 @@ private:
 
     net::awaitable<void> do_session(tcp::socket socket) {
 		auto session = std::make_shared<ConnectionSession>(std::move(socket));
+        session->_http_client.set_target_base_endpoint(_http_target_base_endpoint);
 		beast::flat_buffer buffer;
 
 		auto [accept_ec] = co_await session->_ws.async_accept(use_nothrow_awaitable);
@@ -227,7 +233,7 @@ private:
 			auto msg = beast::buffers_to_string(buffer.data());
 			buffer.consume(buffer.size());
             auto exec = socket.get_executor();
-            net::co_spawn(exec, handle_message(std::move(msg)), net::detached) ;
+            net::co_spawn(exec, handle_message(session, std::move(msg)), net::detached) ;
 		}
 
 		_connections.erase(session);
@@ -237,12 +243,12 @@ private:
 		}
     }
     
-private: 
-    tcp::endpoint _endpoint;
+private:
+    tcp::endpoint _endpoint; // ws server binding endpoint
     tcp::acceptor _acceptor;
     std::unordered_set<std::shared_ptr<ConnectionSession>> _connections;
 
-    HttpClient _http_client;
+    tcp::endpoint _http_target_base_endpoint; // http target base endpoint
 };
 
 int main(int argc, char* argv[]) {
