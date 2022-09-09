@@ -4,14 +4,12 @@
 #include <memory>
 #include <string>
 #include <functional>
+#include <deque>
+
 
 class HttpClient {
 public:
-    HttpClient(net::io_context& ioc, tcp::endpoint base_endpoint)
-        : _ioc(ioc)
-        , _base_endpoint(base_endpoint) 
-        {
-        }
+    HttpClient() = default;
 
     ~HttpClient() {
         error_code shutdown_ec;
@@ -19,6 +17,10 @@ public:
         if (shutdown_ec) {
             std::cerr << "shutdown: " << shutdown_ec.value() << "\n";
         }
+    }
+
+    void set_target_base_endpoint(tcp::endpoint const& endpoint) {
+        _base_endpoint = endpoint;
     }
 
     net::awaitable<error_code> request(std::string const& target, std::string const& req_body, std::string& resp) {
@@ -103,7 +105,6 @@ private:
     }
 
 private:
-    net::io_context& _ioc;
     tcp::endpoint _base_endpoint;
     std::unique_ptr<beast::tcp_stream> _stream;
     beast::flat_buffer _buffer;
@@ -113,18 +114,19 @@ int main(int argc, char* argv[]) {
     try {
         if (argc != 3) {
             std::cerr << "Usage: \n";
-            std::cerr << " <target_address> <target_port>\n";
+            std::cerr << " <http_target_address> <http_target_port>\n";
             return 1;
         }
 
         net::io_context ctx;
 
-        auto endpoint = *tcp::resolver(ctx).resolve(argv[1], argv[2]);
+        auto http_endpoint = *tcp::resolver(ctx).resolve(argv[1], argv[2]);
 
-        HttpClient client(ctx, endpoint);
+        HttpClient client;
+        client.set_target_base_endpoint(http_endpoint);
         std::string target = "/";
         std::string req = "abcdef";
-        std::string resp;
+        std::string http_resp;
 
         net::co_spawn(
             ctx,
@@ -133,12 +135,12 @@ int main(int argc, char* argv[]) {
                 &client,
                 std::cref(target),
                 std::cref(req),
-                std::ref(resp)), 
+                std::ref(http_resp)), 
             net::detached);
 
         ctx.run();
 
-        std::cout << resp << std::endl;
+        std::cout << http_resp << std::endl;
     }
     catch (std::exception &e) {
         std::cerr << "Exception: " << e.what() << "\n";

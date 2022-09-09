@@ -71,12 +71,12 @@ add_executable(server
 )
 target_link_libraries(server PRIVATE Threads::Threads ${Boost_SYSTEM_LIBRARY})
 
-add_executable(client 
+add_executable(http_client_class
   net/net.h
-  client.cpp
+  http_client_class.cpp
   ${BEAST_FILES}
 )
-target_link_libraries(client PRIVATE Threads::Threads ${Boost_SYSTEM_LIBRARY})
+target_link_libraries(http_client_class PRIVATE Threads::Threads ${Boost_SYSTEM_LIBRARY})
 
 add_executable(websocket_client 
   net/net.h
@@ -84,3 +84,10 @@ add_executable(websocket_client
   ${BEAST_FILES}
 )
 target_link_libraries(websocket_client PRIVATE Threads::Threads ${Boost_SYSTEM_LIBRARY})
+
+add_executable(websocket_client_class
+  net/net.h
+  websocket_client_class.cpp
+  ${BEAST_FILES}
+)
+target_link_libraries(websocket_client_class PRIVATE Threads::Threads ${Boost_SYSTEM_LIBRARY})
