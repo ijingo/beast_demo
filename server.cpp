@@ -13,10 +13,12 @@ public:
     HttpClient() = default;
 
     ~HttpClient() {
-        error_code shutdown_ec;
-        _stream->socket().shutdown(tcp::socket::shutdown_both, shutdown_ec);
-        if (shutdown_ec) {
-            std::cerr << "shutdown: " << shutdown_ec.value() << "\n";
+        if (_stream) {
+            error_code shutdown_ec;
+            _stream->socket().shutdown(tcp::socket::shutdown_both, shutdown_ec);
+            if (shutdown_ec) {
+                std::cerr << "shutdown: " << shutdown_ec.value() << "\n";
+            }
         }
     }
 
@@ -254,13 +256,14 @@ class ConnectionSession
 public:
     friend class Server;
 
-    explicit ConnectionSession(tcp::socket socket)
+    ConnectionSession(tcp::socket socket, tcp::endpoint const &http_target_base_endpoint)
         : _ws(std::move(socket))
     {
         _ws.set_option(websocket::stream_base::timeout::suggested(beast::role_type::server));
         _ws.set_option(websocket::stream_base::decorator(
             [](websocket::response_type &res)
             { res.set(http::field::server, std::string(BOOST_BEAST_VERSION_STRING) + " websocket-server-async"); }));
+        _http_client.set_target_base_endpoint(http_target_base_endpoint);
     }
 
     net::awaitable<void> send(std::shared_ptr<std::string> msg)
@@ -431,8 +434,9 @@ private:
 
     net::awaitable<void> do_session(tcp::socket socket)
     {
-        auto session = std::make_shared<ConnectionSession>(std::move(socket));
-        session->_http_client.set_target_base_endpoint(_http_target_base_endpoint);
+        auto session = std::make_shared<ConnectionSession>(std::move(socket), _http_target_base_endpoint);
+
+
         beast::flat_buffer buffer;
 
         auto [accept_ec] = co_await session->_ws.async_accept(use_nothrow_awaitable);
