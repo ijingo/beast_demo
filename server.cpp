@@ -4,7 +4,7 @@
 #include <memory>
 #include <deque>
 #include <string>
-#include <unordered_set>
+#include <list>
 
 class Server;
 
@@ -406,7 +406,8 @@ private:
 
             co_return;
         }
-        _connections.emplace(session);
+        _connections.emplace_back(session);
+        auto iter = std::next(_connections.end(), -1);
 
         while (true)
         {
@@ -432,7 +433,7 @@ private:
             net::co_spawn(exec, _websocket_client->request(std::move(msg)), net::detached);
         }
 
-        _connections.erase(session);
+        _connections.erase(iter);
         auto [close_ec] = co_await session->_ws.async_close(websocket::close_code::normal, use_nothrow_awaitable);
         if (close_ec)
         {
@@ -443,8 +444,7 @@ private:
 private:
     tcp::endpoint _bind_endpoint; // ws server binding endpoint
     tcp::acceptor _acceptor;
-    // TODO(wj): 确认 unordered_set 一边 iteration 一边 erase 的正确性。
-    std::unordered_set<std::shared_ptr<ConnectionSession>> _connections;
+    std::list<std::shared_ptr<ConnectionSession>> _connections;
     std::unique_ptr<WebsocketClient> _websocket_client;
     tcp::endpoint _http_target_base_endpoint;      // http target base endpoint
     tcp::endpoint _websocket_target_base_endpoint; // websocket target base endpoint
