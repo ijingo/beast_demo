@@ -133,11 +133,11 @@ public:
         _receive_message_callback = func;
     }
 
-    void connect(net::io_context &ioc)
+    void submit_connect_and_read(net::io_context &ioc)
     {
         net::co_spawn(
             ioc,
-            do_connect(),
+            do_connect_and_read(),
             net::detached);
     }
 
@@ -181,7 +181,7 @@ private:
                 std::cerr << "read: " << read_ec.message() << "\n";
 
                 ++_reconnect_times;
-                co_await do_connect();
+                co_await do_connect_and_read();
 
                 break;
             }
@@ -193,7 +193,7 @@ private:
         }
     }
 
-    net::awaitable<void> do_connect()
+    net::awaitable<void> do_connect_and_read()
     {
         int max_reconnect_times = 3;
         if (_reconnect_times == max_reconnect_times)
@@ -306,11 +306,19 @@ public:
         std::string origin_req_body, std::string &result_req_body, RequestType &result_type, std::string &http_req_target)>;
 
 public:
-    Server(net::io_context &ioc, tcp::endpoint const &bind_endpoint)
-        : _bind_endpoint(bind_endpoint)
-        , _acceptor(ioc)
-        , _request_handler(Server::default_request_handler)
+    Server()
+        : _request_handler(Server::default_request_handler)
     {
+    }
+
+    int bind_port() const
+    {
+        if (_acceptor)
+        {
+            return _acceptor->local_endpoint().port();
+        }
+
+        return 0;
     }
 
     void run(
@@ -326,28 +334,30 @@ public:
         _websocket_client = std::make_unique<WebsocketClient>(
             ioc, _websocket_target_base_endpoint, _websocket_target_url);
         _websocket_client->set_receive_message_callback(std::bind_front(&Server::handle_websocket_receive_message, this));
-        _websocket_client->connect(ioc);
+        _websocket_client->submit_connect_and_read(ioc);
 
+        _acceptor = std::make_unique<tcp::acceptor>(ioc);
+        _bind_endpoint = tcp::endpoint{tcp::v4(), 0};
         error_code ec;
-        _acceptor.open(_bind_endpoint.protocol(), ec);
+        _acceptor->open(_bind_endpoint.protocol(), ec);
         if (ec)
         {
             std::cerr << "open: " << ec.message() << "\n";
             return;
         }
-        _acceptor.set_option(net::socket_base::reuse_address(true), ec);
+        _acceptor->set_option(net::socket_base::reuse_address(true), ec);
         if (ec)
         {
             std::cerr << "set_option: " << ec.message() << "\n";
             return;
         }
-        _acceptor.bind(_bind_endpoint, ec);
+        _acceptor->bind(_bind_endpoint, ec);
         if (ec)
         {
             std::cerr << "bind: " << ec.message() << "\n";
             return;
         }
-        _acceptor.listen(net::socket_base::max_listen_connections, ec);
+        _acceptor->listen(net::socket_base::max_listen_connections, ec);
         if (ec)
         {
             std::cerr << "listen: " << ec.message() << "\n";
@@ -370,7 +380,7 @@ private:
     {
         while (true)
         {
-            auto [ec, socket] = co_await _acceptor.async_accept(use_nothrow_awaitable);
+            auto [ec, socket] = co_await _acceptor->async_accept(use_nothrow_awaitable);
             if (ec)
             {
                 std::cerr << "listen: " << ec.message() << "\n";
@@ -479,15 +489,15 @@ private:
     }
 
 private:
+    RequestHandlerType _request_handler;
+    
     tcp::endpoint _bind_endpoint; // ws server binding endpoint
-    tcp::acceptor _acceptor;
+    std::unique_ptr<tcp::acceptor> _acceptor;
     std::list<std::shared_ptr<ConnectionSession>> _connections;
     std::unique_ptr<WebsocketClient> _websocket_client;
     tcp::endpoint _http_target_base_endpoint;      // http target base endpoint
     tcp::endpoint _websocket_target_base_endpoint; // websocket target base endpoint
     std::string _websocket_target_url;             // websocket target url
-
-    RequestHandlerType _request_handler;
 
     std::deque<std::shared_ptr<std::string>> _response_queue;
 };
@@ -496,20 +506,22 @@ int main(int argc, char *argv[])
 {
     try
     {
-        if (argc != 8)
+        if (argc != 6)
         {
             std::cerr << "Usage: \n";
-            std::cerr << " <listen_address> <listen_port> <http_target_address> <http_target_port> <websocket_target_address> <websocket_target_prt> <websocket_target_url>\n";
+            std::cerr << " <http_target_address> <http_target_port>";
+            std::cerr << " <websocket_target_address> <websocket_target_prt> <websocket_target_url>\n";
             return 1;
         }
 
         net::io_context ioc;
-        auto endpoint = *tcp::resolver(ioc).resolve(argv[1], argv[2], tcp::resolver::passive);
-        auto http_target_endpoint = *tcp::resolver(ioc).resolve(argv[3], argv[4]);
-        auto websocket_target_endpoint = *tcp::resolver(ioc).resolve(argv[5], argv[6]);
+        auto http_target_endpoint = *tcp::resolver(ioc).resolve(argv[1], argv[2]);
+        auto websocket_target_endpoint = *tcp::resolver(ioc).resolve(argv[3], argv[4]);
 
-        Server server(ioc, endpoint);
-        server.run(ioc, http_target_endpoint, websocket_target_endpoint, argv[7]);
+        Server server;
+        server.run(ioc, http_target_endpoint, websocket_target_endpoint, argv[5]);
+
+        std::cout << "Server bind on port: " << server.bind_port() << std::endl;
 
         ioc.run();
     }
