@@ -294,9 +294,19 @@ class Server
 public:
     friend class WebsocketClient;
 
+    enum class RequestType: int {
+        http = 0,
+        websocket = 1
+    };
+
+    using RequestHandlerType = std::function<void(
+        std::string origin_req_body, std::string &result_req_body, RequestType &result_type, std::string &http_req_target)>;
+
+public:
     Server(net::io_context &ioc, tcp::endpoint const &bind_endpoint)
         : _bind_endpoint(bind_endpoint)
         , _acceptor(ioc)
+        , _request_handler(Server::default_request_handler)
     {
     }
 
@@ -343,6 +353,15 @@ public:
         net::co_spawn(ioc, do_accept(), net::detached);
     }
 
+    static void default_request_handler(
+        std::string origin_req_body, std::string &result_req_body, RequestType &result_type, std::string &http_req_target)
+    {
+        result_req_body = std::move(origin_req_body);
+
+        result_type = Server::RequestType::websocket;
+        http_req_target = "";
+    }
+
 private:
     net::awaitable<void> do_accept()
     {
@@ -383,9 +402,26 @@ private:
         net::co_spawn(exec, broadcast_response(msg_ptr), net::detached);
     }
 
-    net::awaitable<void> handle_http_req(std::shared_ptr<ConnectionSession> session, std::string req_body)
+    void handle_request(net::any_io_executor& exec, std::shared_ptr<ConnectionSession> session, std::string req_body)
     {
-        std::string target = "/";
+        std::string actual_req_body;
+        RequestType req_type{RequestType::http};
+        std::string http_req_target;
+
+        _request_handler(std::move(req_body), actual_req_body, req_type, http_req_target);
+
+        if (req_type == RequestType::http)
+        {
+            net::co_spawn(exec, handle_http_req(session, std::move(actual_req_body), http_req_target), net::detached);
+        }
+        else
+        {
+            net::co_spawn(exec, _websocket_client->request(std::move(actual_req_body)), net::detached);
+        }
+    }
+
+    net::awaitable<void> handle_http_req(std::shared_ptr<ConnectionSession> session, std::string req_body, std::string target)
+    {
         auto result_msg = std::make_shared<std::string>();
         auto ec = co_await session->_http_client.request(target, req_body, *result_msg);
 
@@ -409,6 +445,7 @@ private:
         _connections.emplace_back(session);
         auto iter = std::next(_connections.end(), -1);
 
+        auto exec = socket.get_executor();
         while (true)
         {
             auto [read_ec, read_size] = co_await session->_ws.async_read(buffer, use_nothrow_awaitable);
@@ -425,12 +462,8 @@ private:
             auto msg = beast::buffers_to_string(buffer.data());
             buffer.consume(buffer.size());
 
-            // TODO: dispatch using msg content
-            // 按照 http request 处理
-            auto exec = socket.get_executor();
-            net::co_spawn(exec, handle_http_req(session, msg), net::detached);
-            // 按照 websocket 处理
-            net::co_spawn(exec, _websocket_client->request(std::move(msg)), net::detached);
+            // dispatch request to http or websocket by parsing msg content
+            handle_request(exec, session, std::move(msg));
         }
 
         _connections.erase(iter);
@@ -449,6 +482,8 @@ private:
     tcp::endpoint _http_target_base_endpoint;      // http target base endpoint
     tcp::endpoint _websocket_target_base_endpoint; // websocket target base endpoint
     std::string _websocket_target_url;             // websocket target url
+
+    RequestHandlerType _request_handler;
 
     std::deque<std::shared_ptr<std::string>> _response_queue;
 };
